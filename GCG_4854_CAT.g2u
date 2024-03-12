@@ -1,0 +1,123 @@
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+'1-10-2017 Dawn Hughes
+'This will populate a table so the Multi Level BOM report will be able to link category. Report ID = 4201
+'report hook # 16090
+F.ODBC.Connection!con.OpenConnection(V.Ambient.PDSN, V.Ambient.PUser, V.Ambient.PPass)
+
+'F.Intrinsic.Control.If(V.Passed.009001, =, "004201")
+	F.Intrinsic.Control.CallSub(Data)
+	F.Intrinsic.Control.CallSub(Unload)
+'F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.CallSub(Unload)
+
+F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4854_CAT.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.CallSub(unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Main.End
+
+Program.Sub.Data.Start
+F.Intrinsic.Control.SetErrorHandler("Data_Err")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+V.Local..BulkDeclareString(ssql, sFilePath, sParams, sBom, sFile, sbomline, sTemp, sStar, sREC_SEQ) 
+V.Local..BulkDeclareLong(iC, iB, iBOUND, iSub)
+V.Local.bExists.Declare(Boolean)
+
+F.Data.DataTable.Create("D", True)
+F.Data.DataTable.AddColumn("D", "PARENT_KEY", "String")
+F.Data.DataTable.AddColumn("D", "PARENT", "String")
+F.Data.DataTable.AddColumn("D", "REC_SEQ", "String")
+F.Data.DataTable.AddColumn("D", "LEVEL", "String")
+F.Data.DataTable.AddColumn("D", "CATEGORY", "String")
+
+F.Data.DataTable.CreateFromSQL("T","con", "Select Distinct PARENT_KEY From V_BI_BOM_EXPLODE" ,True)
+
+F.Intrinsic.Control.For(V.Local.iC, 0, V.DataTable.T.RowCount--, 1)
+	F.Intrinsic.String.Build("Select * from V_BOM_MSTR where PARENT = '{0}'",V.DataTable.T(V.Local.iC).PARENT_KEY!FieldValTrim,V.Local.ssql)
+	F.ODBC.Connection!con.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+	F.Intrinsic.Control.If(V.ODBC.con!rst.EOF,<>,True)
+		'build the file to explode
+		F.Intrinsic.String.Build("{0}\EXPLODEBOM{1}.txt",V.System.Temp,V.Caller.Terminal,V.Local.sFilePath)
+		F.Intrinsic.String.Build("0{0}{1}{0}{2}",V.Ambient.Tab,V.DataTable.T(V.Local.iC).PARENT_KEY!FieldValTrim,1,V.Local.sParams)
+		F.Intrinsic.File.String2File(V.Local.sFilePath,V.Local.sParams)
+		F.Global.General.CallWrapperSync(410000,V.Local.sFilePath)
+		F.Intrinsic.File.Exists(V.Local.sFilePath,V.Local.bExists)
+		'check if the file exists
+		F.Intrinsic.Control.If(V.Local.bExists,=,True)
+			F.Intrinsic.File.FiletoStringArray(V.Local.sFilePath,V.Ambient.Tab,V.Local.sBom)
+			V.Local.sbom.RedimPreserve(0,3)
+			F.Intrinsic.File.GetFileNameFromFQN(V.Local.sBom(3),V.Local.sFile.Trim)
+			F.Intrinsic.String.Split(V.Local.sFile," ",V.Local.sFile)
+			F.Intrinsic.String.Build("{0}\{1}",V.System.Temp,V.Local.sFile(0).Trim,V.Local.sFilePath)
+			F.Intrinsic.File.Exists(V.Local.sFilePath,V.Local.bExists)
+			'check if the file exists
+			F.Intrinsic.Control.If(V.Local.bExists,=,true)
+				'load it to a string
+				F.Intrinsic.File.File2String(V.Local.sFilePath,V.Local.sbomline)
+				F.Intrinsic.String.Replace(v.Local.sbomline,"*","",v.Local.sbomline)
+				'split the return
+				F.Intrinsic.String.Split(V.Local.sbomline.Trim,v.Ambient.NewLine,V.Local.sbomline)
+				F.Intrinsic.Math.Sub(V.Local.sbomline.ubound,1,V.Local.iBOUND)
+				F.Intrinsic.Control.For(V.Local.iB,7,V.Local.iBOUND,1)
+					F.Intrinsic.String.Split(V.Local.sBomLine(V.Local.iB), "|~|", V.Local.sTemp)
+					F.Intrinsic.String.RPad(V.Local.sTemp(1), "*", 8, V.Local.sStar)
+					F.Intrinsic.Math.Sub(V.Local.sTemp(0).Trim, 1, V.Local.iSub)
+					F.Intrinsic.String.LPad( V.Local.iSub, "0", 6, V.Local.sREC_SEQ)
+					F.Data.DataTable.AddRow("D", "PARENT_KEY", V.DataTable.T(V.Local.iC).PARENT_KEY!FieldValTrim, "PARENT", V.Local.sTemp(2).Trim, "LEVEL", V.Local.sStar, "CATEGORY", V.Local.sTemp(4).Trim, "REC_SEQ", V.Local.sREC_SEQ)	
+				F.Intrinsic.Control.Next(V.Local.iB)
+			Function.Intrinsic.Control.EndIf
+		Function.Intrinsic.Control.EndIf
+	Function.Intrinsic.Control.EndIf
+	F.ODBC.con!rst.Close
+F.Intrinsic.Control.Next(V.Local.iC)
+
+'save to database
+F.ODBC.Connection!con.Execute("Delete From GCG_4854_CATEGORY")
+F.Data.DataTable.SaveToDB("D", "con", "GCG_4854_CATEGORY", "", 128)
+F.ODBC.Connection!con.Execute("Update GCG_4854_CATEGORY Set LEVEL = 'Parent' Where LEVEL = ''")
+'close tables
+F.Data.DataTable.Close("D")
+F.Data.DataTable.Close("T")
+
+F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Label("Data_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4854_CAT.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.CallSub(unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Data.End
+
+Program.Sub.Unload.Start
+F.Intrinsic.Control.SetErrorHandler("Unload_Err")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+F.ODBC.Connection!con.Close
+f.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Label("Unload_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4854_CAT.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.End
+
+Function.Intrinsic.Control.EndIf
+Program.Sub.Unload.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$$}$12:00:00 AM$}$False
+Program.Sub.Comments.End
